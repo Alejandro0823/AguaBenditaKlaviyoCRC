@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch KlaviyoCRC (We)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/KlaviyoCRC.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "integratedTerminal",
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "DOTNET_NOLOGO": "1"
+      },
+      "logging": {
+        "moduleLoad": false
+      }
+    },
+    {
+      "name": "Attach to KlaviyoCRC",
+      "type": "coreclr",
+      "request": "attach"
+    }
+  ]
+}
