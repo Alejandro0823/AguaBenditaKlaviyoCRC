@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\jhona\\Desktop\\Desarrollos\\KlaviyoCRC\\KlaviyoCRC.csproj": {}
+    "C:\\Users\\jhona\\Desktop\\Desarrollos\\AguaBenditaKlaviyoCRC\\KlaviyoCRC.csproj": {}
   },
   "projects": {
-    "C:\\Users\\jhona\\Desktop\\Desarrollos\\KlaviyoCRC\\KlaviyoCRC.csproj": {
+    "C:\\Users\\jhona\\Desktop\\Desarrollos\\AguaBenditaKlaviyoCRC\\KlaviyoCRC.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\jhona\\Desktop\\Desarrollos\\KlaviyoCRC\\KlaviyoCRC.csproj",
+        "projectUniqueName": "C:\\Users\\jhona\\Desktop\\Desarrollos\\AguaBenditaKlaviyoCRC\\KlaviyoCRC.csproj",
         "projectName": "KlaviyoCRC",
-        "projectPath": "C:\\Users\\jhona\\Desktop\\Desarrollos\\KlaviyoCRC\\KlaviyoCRC.csproj",
+        "projectPath": "C:\\Users\\jhona\\Desktop\\Desarrollos\\AguaBenditaKlaviyoCRC\\KlaviyoCRC.csproj",
         "packagesPath": "C:\\Users\\jhona\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\jhona\\Desktop\\Desarrollos\\KlaviyoCRC\\obj\\",
+        "outputPath": "C:\\Users\\jhona\\Desktop\\Desarrollos\\AguaBenditaKlaviyoCRC\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -50,6 +50,10 @@
         "net10.0": {
           "targetAlias": "net10.0",
           "dependencies": {
+            "Microsoft.Data.SqlClient": {
+              "target": "Package",
+              "version": "[6.0.2, )"
+            },
             "Microsoft.Extensions.Hosting": {
               "target": "Package",
               "version": "[10.0.9, )"
@@ -61,10 +65,6 @@
             "RestSharp": {
               "target": "Package",
               "version": "[114.0.0, )"
-            },
-            "System.Data.SqlClient": {
-              "target": "Package",
-              "version": "[4.9.1, )"
             }
           },
           "imports": [
