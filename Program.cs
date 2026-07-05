@@ -7,6 +7,7 @@ var builder = Host.CreateApplicationBuilder(args);
 // Register dependencies
 builder.Services.AddTransient<IKlaviyoCustomerFetcher, KlaviyoCustomerFetcher>();
 builder.Services.AddTransient<ICrcEmailValidationService, CrcEmailValidationService>();
+builder.Services.AddTransient<ICrcPhoneValidationService, CrcPhoneValidationService>();
 builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
 builder.Services.AddHostedService<SchedulerService>();
 

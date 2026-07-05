@@ -14,17 +14,20 @@ public class ProcessExecutor : IProcessExecutor
     private readonly IConfiguration _configuration;
     private readonly IKlaviyoCustomerFetcher _klaviyoCustomerFetcher;
     private readonly ICrcEmailValidationService _crcEmailValidationService;
+    private readonly ICrcPhoneValidationService _crcPhoneValidationService;
     private readonly ILogger<ProcessExecutor> _logger;
 
     public ProcessExecutor(
         IConfiguration configuration,
         IKlaviyoCustomerFetcher klaviyoCustomerFetcher,
         ICrcEmailValidationService crcEmailValidationService,
+        ICrcPhoneValidationService crcPhoneValidationService,
         ILogger<ProcessExecutor> logger)
     {
         _configuration = configuration;
         _klaviyoCustomerFetcher = klaviyoCustomerFetcher;
         _crcEmailValidationService = crcEmailValidationService;
+        _crcPhoneValidationService = crcPhoneValidationService;
         _logger = logger;
     }
 
@@ -57,8 +60,11 @@ public class ProcessExecutor : IProcessExecutor
         // Paso 1: Descargar y persistir clientes desde Klaviyo
         await _klaviyoCustomerFetcher.FetchCustomersAsync(cancellationToken);
 
-        // Paso 2: Validar emails contra el servicio CRC (se ejecuta una vez termine el paso anterior)
+        // Paso 2: Validar emails contra el servicio CRC
         await _crcEmailValidationService.ValidateEmailsAsync(cancellationToken);
+
+        // Paso 3: Validar teléfonos contra el servicio CRC
+        await _crcPhoneValidationService.ValidatePhonesAsync(cancellationToken);
 
         _logger.LogInformation("Internal process: Completed task logic at {Time}", DateTime.Now);
     }

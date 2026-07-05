@@ -32,14 +32,14 @@ public class CrcEmailValidationService : ICrcEmailValidationService
     {
         _logger.LogInformation("Iniciando validación de emails contra servicio CRC...");
 
-        var settings = _configuration.GetSection("CrcEmailValidationSettings");
+        var settings = _configuration.GetSection("CrcApiSettings");
 
         string connectionString = _configuration.GetConnectionString("KlaviyoDatabase")
             ?? _configuration["ConnectionStrings:KlaviyoDatabase"]
             ?? throw new InvalidOperationException("No se encontró la cadena de conexión 'KlaviyoDatabase'.");
 
-        string baseUrl  = settings["BaseUrl"]  ?? throw new InvalidOperationException("CrcEmailValidationSettings:BaseUrl no configurado.");
-        string endpoint = settings["Endpoint"] ?? throw new InvalidOperationException("CrcEmailValidationSettings:Endpoint no configurado.");
+        string baseUrl  = settings["BaseUrl"]  ?? throw new InvalidOperationException("CrcApiSettings:BaseUrl no configurado.");
+        string endpoint = settings["Endpoint"] ?? throw new InvalidOperationException("CrcApiSettings:Endpoint no configurado.");
 
         // --- 1. Obtener el payload JSON directamente desde el SP ---
         var (crcEmailPayload, emailsSent) = await GetCrcPayloadFromDatabaseAsync(connectionString, cancellationToken);
@@ -226,7 +226,7 @@ public class CrcEmailValidationService : ICrcEmailValidationService
 
         var param = cmd.Parameters.AddWithValue("@ExcludedEmails", table);
         param.SqlDbType = SqlDbType.Structured;
-        param.TypeName  = "dbo.EmailListType";
+        param.TypeName  = "dbo.EmailExclusionType";
 
         await conn.OpenAsync(cancellationToken);
         var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
