@@ -43,6 +43,10 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
 
         _logger.LogInformation("Iniciando lectura y descarga de clientes de Klaviyo usando KlaviyoCustomerFetcher...");
 
+        int pageCount = 0;
+        int totalProcessed = 0;
+        int maxPages = _configuration.GetValue<int>("KlaviyoSettings:MaxPagesToFetch", 0);
+
         do
         {
             if (cancellationToken.IsCancellationRequested)
@@ -51,6 +55,7 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
                 break;
             }
 
+            pageCount++;
             var request = new RestRequest(endpoint, Method.Get);
             request.AddHeader("Authorization", $"Klaviyo-API-Key {apiKey}");
             request.AddHeader("accept", accept);
@@ -60,7 +65,8 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
             if (!string.IsNullOrEmpty(nextCursor))
                 request.AddQueryParameter("page[cursor]", nextCursor);
 
-            _logger.LogInformation("Consumiendo API de Klaviyo. Endpoint: {Endpoint}, Cursor actual: {Cursor}", endpoint, nextCursor ?? "Inicio");
+            _logger.LogInformation("Consumiendo API de Klaviyo. Endpoint: {Endpoint}, Página: {PageCount}, Clientes procesados hasta ahora: {TotalProcessed}, Cursor actual: {Cursor}", 
+                endpoint, pageCount, totalProcessed, nextCursor ?? "Inicio");
             var response = await client.ExecuteAsync(request, cancellationToken);
             if (!response.IsSuccessful)
             {
@@ -115,7 +121,8 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
                 table.Rows.Add(id, firstName, lastName, phone, email, identificationNumber, identificationType);
             }
 
-            _logger.LogInformation("Insertando {RowCount} clientes en la base de datos...", table.Rows.Count);
+            totalProcessed += table.Rows.Count;
+            _logger.LogInformation("Insertando {RowCount} clientes en la base de datos (Total acumulado: {TotalProcessed})...", table.Rows.Count, totalProcessed);
 
             // Enviar DataTable al SP
             using (var conn = new SqlConnection(connectionString))
@@ -130,8 +137,26 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            // Obtener cursor siguiente
-            nextCursor = json["links"]?["next"]?.ToString();
+            // Obtener cursor siguiente: extraer solo el valor de page[cursor] de la URL
+            var nextLink = json["links"]?["next"]?.ToString();
+            nextCursor = null;
+            if (!string.IsNullOrEmpty(nextLink) && Uri.TryCreate(nextLink, UriKind.Absolute, out var nextUri))
+            {
+                // Parsear query string manualmente (no se requiere System.Web en .NET moderno)
+                nextCursor = nextUri.Query
+                    .TrimStart('?')
+                    .Split('&')
+                    .Select(p => p.Split('='))
+                    .Where(p => p.Length == 2 && Uri.UnescapeDataString(p[0]) == "page[cursor]")
+                    .Select(p => Uri.UnescapeDataString(p[1]))
+                    .FirstOrDefault();
+            }
+
+            if (maxPages > 0 && pageCount >= maxPages)
+            {
+                _logger.LogInformation("Se alcanzó el límite de páginas configurado ({MaxPages}). Deteniendo la descarga.", maxPages);
+                break;
+            }
 
         } while (!string.IsNullOrEmpty(nextCursor));
 

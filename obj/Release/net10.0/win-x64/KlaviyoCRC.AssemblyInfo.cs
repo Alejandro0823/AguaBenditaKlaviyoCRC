@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("KlaviyoCRC")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+791d3d1714a7d5201856e9a05d7527dbb2e8f2df")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9e561f0d0bc682b0c53d514369ec1db1628437fe")]
 [assembly: System.Reflection.AssemblyProductAttribute("KlaviyoCRC")]
 [assembly: System.Reflection.AssemblyTitleAttribute("KlaviyoCRC")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
