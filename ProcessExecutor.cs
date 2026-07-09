@@ -57,16 +57,41 @@ public class ProcessExecutor : IProcessExecutor
     {
         _logger.LogInformation("Executing internal custom process logic");
 
-        // Paso 1: Descargar y persistir clientes desde Klaviyo
-        await _klaviyoCustomerFetcher.FetchCustomersAsync(cancellationToken);
+        var brands = _configuration.GetSection("Brands").Get<List<BrandOptions>>() ?? new List<BrandOptions>();
+        if (brands.Count == 0)
+        {
+            _logger.LogWarning("No hay marcas configuradas en la sección 'Brands'. No se ejecutará ningún proceso.");
+            return;
+        }
 
-        // Paso 2: Validar emails contra el servicio CRC
-        await _crcEmailValidationService.ValidateEmailsAsync(cancellationToken);
+        // Cada marca corre su propio pipeline (Klaviyo -> Email CRC -> Phone CRC) de forma
+        // independiente y en simultáneo; una marca fallando no detiene a las demás.
+        await Task.WhenAll(brands.Select(brand => RunBrandPipelineAsync(brand, cancellationToken)));
 
-        // Paso 3: Validar teléfonos contra el servicio CRC
-        await _crcPhoneValidationService.ValidatePhonesAsync(cancellationToken);
+        _logger.LogInformation("Internal process: Completed task logic for all brands at {Time}", DateTime.Now);
+    }
 
-        _logger.LogInformation("Internal process: Completed task logic at {Time}", DateTime.Now);
+    private async Task RunBrandPipelineAsync(BrandOptions brand, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("[{Brand}] Iniciando pipeline (Klaviyo -> Email CRC -> Phone CRC)...", brand.Code);
+
+            // Paso 1: Descargar y persistir clientes desde Klaviyo
+            await _klaviyoCustomerFetcher.FetchCustomersAsync(brand, cancellationToken);
+
+            // Paso 2: Validar emails contra el servicio CRC
+            await _crcEmailValidationService.ValidateEmailsAsync(brand, cancellationToken);
+
+            // Paso 3: Validar teléfonos contra el servicio CRC
+            await _crcPhoneValidationService.ValidatePhonesAsync(brand, cancellationToken);
+
+            _logger.LogInformation("[{Brand}] Pipeline completado.", brand.Code);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[{Brand}] Error en el pipeline de la marca.", brand.Code);
+        }
     }
 
     private async Task RunExternalProcessAsync(CancellationToken cancellationToken)

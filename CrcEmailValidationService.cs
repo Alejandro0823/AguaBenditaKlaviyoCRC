@@ -14,7 +14,7 @@ namespace KlaviyoCRC;
 
 public interface ICrcEmailValidationService
 {
-    Task ValidateEmailsAsync(CancellationToken cancellationToken);
+    Task ValidateEmailsAsync(BrandOptions brand, CancellationToken cancellationToken);
 }
 
 public class CrcEmailValidationService : ICrcEmailValidationService
@@ -34,9 +34,9 @@ public class CrcEmailValidationService : ICrcEmailValidationService
         public List<string> Keys { get; set; } = new();
     }
 
-    public async Task ValidateEmailsAsync(CancellationToken cancellationToken)
+    public async Task ValidateEmailsAsync(BrandOptions brand, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Iniciando validación de emails contra servicio CRC...");
+        _logger.LogInformation("[{Brand}] Iniciando validación de emails contra servicio CRC...", brand.Code);
 
         var settings = _configuration.GetSection("CrcApiSettings");
 
@@ -48,15 +48,15 @@ public class CrcEmailValidationService : ICrcEmailValidationService
         string endpoint = settings["Endpoint"] ?? throw new InvalidOperationException("CrcApiSettings:Endpoint no configurado.");
 
         // --- 1. Obtener la lista de payloads del SP ---
-        var chunks = await GetCrcPayloadsFromDatabaseAsync(connectionString, cancellationToken);
+        var chunks = await GetCrcPayloadsFromDatabaseAsync(connectionString, brand.GetCustomerEmailsForCrcSp, cancellationToken);
 
         if (chunks.Count == 0)
         {
-            _logger.LogWarning("El SP GetCustomerEmailsForCRC no retornó payloads. No se enviará ninguna solicitud al CRC.");
+            _logger.LogWarning("[{Brand}] El SP {Sp} no retornó payloads. No se enviará ninguna solicitud al CRC.", brand.Code, brand.GetCustomerEmailsForCrcSp);
             return;
         }
 
-        _logger.LogInformation("Se obtuvieron {ChunkCount} bloques de emails desde el SP para validar en total.", chunks.Count);
+        _logger.LogInformation("[{Brand}] Se obtuvieron {ChunkCount} bloques de emails desde el SP para validar en total.", brand.Code, chunks.Count);
 
         using var client = new RestClient(baseUrl);
 
@@ -64,7 +64,7 @@ public class CrcEmailValidationService : ICrcEmailValidationService
         foreach (var chunk in chunks)
         {
             chunkIndex++;
-            _logger.LogInformation("Procesando bloque {ChunkIndex}/{TotalChunks} con {Count} emails...", chunkIndex, chunks.Count, chunk.Keys.Count);
+            _logger.LogInformation("[{Brand}] Procesando bloque {ChunkIndex}/{TotalChunks} con {Count} emails...", brand.Code, chunkIndex, chunks.Count, chunk.Keys.Count);
 
             // --- 2. Construir y ejecutar el request HTTP ---
             var request = new RestRequest(endpoint, Method.Post);
@@ -85,31 +85,33 @@ public class CrcEmailValidationService : ICrcEmailValidationService
             // Enviar el JSON del SP directamente como body
             request.AddStringBody(chunk.Payload, ContentType.Json);
 
-            _logger.LogInformation("Enviando bloque {ChunkIndex} al endpoint CRC: {BaseUrl}{Endpoint}", chunkIndex, baseUrl, endpoint);
+            _logger.LogInformation("[{Brand}] Enviando bloque {ChunkIndex} al endpoint CRC: {BaseUrl}{Endpoint}", brand.Code, chunkIndex, baseUrl, endpoint);
 
             var response = await client.ExecuteAsync(request, cancellationToken);
 
             if (!response.IsSuccessful)
             {
                 _logger.LogError(
-                    "Error al llamar al servicio CRC para el bloque {ChunkIndex}. StatusCode: {StatusCode} - Respuesta: {Content}",
+                    "[{Brand}] Error al llamar al servicio CRC para el bloque {ChunkIndex}. StatusCode: {StatusCode} - Respuesta: {Content}",
+                    brand.Code,
                     chunkIndex,
                     response.StatusCode,
                     response.Content);
-                throw new Exception($"CRC API Error (Bloque {chunkIndex}): {response.StatusCode} - {response.Content}");
+                throw new Exception($"[{brand.Code}] CRC API Error (Bloque {chunkIndex}): {response.StatusCode} - {response.Content}");
             }
 
-            _logger.LogInformation("Respuesta recibida para el bloque {ChunkIndex} del servicio CRC. Procesando resultados...", chunkIndex);
+            _logger.LogInformation("[{Brand}] Respuesta recibida para el bloque {ChunkIndex} del servicio CRC. Procesando resultados...", brand.Code, chunkIndex);
 
             // --- 3. Procesar la respuesta CRC y actualizar la base de datos ---
             await ProcessCrcResponseAndUpdateDatabaseAsync(
+                brand,
                 connectionString,
                 response.Content ?? "[]",
                 chunk.Keys,
                 cancellationToken);
         }
 
-        _logger.LogInformation("Validación CRC de emails completada exitosamente para todos los bloques.");
+        _logger.LogInformation("[{Brand}] Validación CRC de emails completada exitosamente para todos los bloques.", brand.Code);
     }
 
     /// <summary>
@@ -117,12 +119,13 @@ public class CrcEmailValidationService : ICrcEmailValidationService
     /// </summary>
     private async Task<List<CrcPayloadChunk>> GetCrcPayloadsFromDatabaseAsync(
         string connectionString,
+        string getCustomerEmailsForCrcSp,
         CancellationToken cancellationToken)
     {
         var chunks = new List<CrcPayloadChunk>();
 
         using var conn = new SqlConnection(connectionString);
-        using var cmd  = new SqlCommand("dbo.GetCustomerEmailsForCRC", conn)
+        using var cmd  = new SqlCommand(getCustomerEmailsForCrcSp, conn)
         {
             CommandType = CommandType.StoredProcedure
         };
@@ -164,14 +167,16 @@ public class CrcEmailValidationService : ICrcEmailValidationService
     }
 
     /// <summary>
-    /// Procesa el array de respuesta CRC y actualiza el campo IsEmailExcludedCRC
-    /// en la tabla Customers según las siguientes reglas:
+    /// Procesa el array de respuesta CRC y sincroniza IsEmailExcludedCRC en la tabla Customers
+    /// para TODOS los emails enviados (no solo los que deben excluirse), ya que el cliente puede
+    /// activar/desactivar el canal en CRC en cualquier momento:
     ///
-    ///   - correo_electronico = false en la respuesta  → IsEmailExcludedCRC = 1  (excluido) + actualiza CrcLastCheckedAt
-    ///   - correo_electronico = true  en la respuesta  → IsEmailExcludedCRC permanece en 0  (sin cambio)
-    ///   - no aparece en la respuesta                  → IsEmailExcludedCRC permanece en 0  (sin cambio)
+    ///   - correo_electronico = true  en la respuesta → IsEmailExcludedCRC = 0 (quiere ser contactado)
+    ///   - correo_electronico = false en la respuesta → IsEmailExcludedCRC = 1 (no quiere ser contactado)
+    ///   - el email no aparece en la respuesta         → IsEmailExcludedCRC = 0 (sin rastro, se asume disponible)
     /// </summary>
     private async Task ProcessCrcResponseAndUpdateDatabaseAsync(
+        BrandOptions brand,
         string connectionString,
         string responseContent,
         List<string> emailsSent,
@@ -185,74 +190,60 @@ public class CrcEmailValidationService : ICrcEmailValidationService
         }
         catch (Exception ex)
         {
-            _logger.LogError("La respuesta CRC no es un JSON array válido: {Error}. Contenido: {Content}", ex.Message, responseContent);
+            _logger.LogError("[{Brand}] La respuesta CRC no es un JSON array válido: {Error}. Contenido: {Content}", brand.Code, ex.Message, responseContent);
             throw;
         }
 
-        if (crcResults.Count == 0)
-        {
-            _logger.LogInformation(
-                "La respuesta CRC está vacía ([]). Ningún email será marcado como excluido. " +
-                "IsEmailExcludedCRC permanece en 0 para los {Count} emails enviados.",
-                emailsSent.Count);
-            return;
-        }
-
-        // Identificar emails con correo_electronico = false → deben excluirse (IsEmailExcludedCRC = 1)
-        var emailsToExclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
+        // Mapa llave (email) -> correo_electronico reportado por CRC
+        var crcByEmail = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in crcResults)
         {
             var llave = item["llave"]?.ToString();
             if (string.IsNullOrWhiteSpace(llave)) continue;
 
             var correoElectronico = item["opcionesContacto"]?["correo_electronico"]?.ToObject<bool>() ?? true;
+            crcByEmail[llave] = correoElectronico;
+        }
 
-            if (!correoElectronico)
-            {
-                emailsToExclude.Add(llave);
-                _logger.LogDebug("Email marcado para exclusión (correo_electronico=false): {Email}", llave);
-            }
-            else
-            {
-                _logger.LogDebug("Email con correo_electronico=true, permanece sin cambio: {Email}", llave);
-            }
+        // Construir DataTable con TODOS los emails enviados y su estado final (TVP: EmailExclusionType de la marca)
+        var table = new DataTable();
+        table.Columns.Add("Email", typeof(string));
+        table.Columns.Add("IsExcluded", typeof(bool));
+
+        int excludedCount = 0;
+        foreach (var email in emailsSent)
+        {
+            // Si CRC no reporta el email, se asume correo_electronico = true (disponible)
+            bool wantsContact = crcByEmail.TryGetValue(email, out var value) ? value : true;
+            bool isExcluded = !wantsContact;
+            if (isExcluded) excludedCount++;
+
+            table.Rows.Add(email, isExcluded);
+            _logger.LogDebug("Email {Email}: IsEmailExcludedCRC={Excluded}", email, isExcluded);
         }
 
         _logger.LogInformation(
-            "Procesamiento CRC: {Total} emails en respuesta, {ToExclude} con correo_electronico=false (serán excluidos).",
-            crcResults.Count, emailsToExclude.Count);
+            "[{Brand}] Procesamiento CRC: {Total} emails en respuesta, {ToExclude} de {Sent} emails enviados quedarán excluidos.",
+            brand.Code, crcResults.Count, excludedCount, emailsSent.Count);
 
-        if (emailsToExclude.Count == 0)
-        {
-            _logger.LogInformation("Ningún email requiere actualización de IsEmailExcludedCRC.");
-            return;
-        }
-
-        // Construir DataTable con los emails que deben ser excluidos (TVP: dbo.EmailListType)
-        var table = new DataTable();
-        table.Columns.Add("Email", typeof(string));
-
-        foreach (var email in emailsToExclude)
-            table.Rows.Add(email);
-
-        // Ejecutar el SP que actualiza IsEmailExcludedCRC = 1 y CrcLastCheckedAt = GETDATE()
+        // Ejecutar el SP que sincroniza IsEmailExcludedCRC y CrcLastCheckedAt para todos los emails enviados
         using var conn = new SqlConnection(connectionString);
-        using var cmd  = new SqlCommand("dbo.UpdateEmailExclusionCRC", conn)
+        using var cmd  = new SqlCommand(brand.UpdateEmailExclusionCrcSp, conn)
         {
             CommandType    = CommandType.StoredProcedure,
             CommandTimeout = 120
         };
 
-        var param = cmd.Parameters.AddWithValue("@ExcludedEmails", table);
+        var param = cmd.Parameters.AddWithValue("@Emails", table);
         param.SqlDbType = SqlDbType.Structured;
-        param.TypeName  = "dbo.EmailExclusionType";
+        param.TypeName  = brand.EmailExclusionType;
 
         await conn.OpenAsync(cancellationToken);
         var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
 
         _logger.LogInformation(
-            "SP UpdateCrcEmailExclusion ejecutado. Registros actualizados en Customers: {Rows}.",
+            "[{Brand}] SP {Sp} ejecutado. Registros actualizados en Customers: {Rows}.",
+            brand.Code, brand.UpdateEmailExclusionCrcSp,
             rowsAffected);
     }
 }

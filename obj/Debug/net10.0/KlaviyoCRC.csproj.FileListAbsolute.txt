@@ -53,7 +53,6 @@ C:\Users\jhona\Desktop\Desarrollos\KlaviyoCRC\obj\Debug\net10.0\refint\KlaviyoCR
 C:\Users\jhona\Desktop\Desarrollos\KlaviyoCRC\obj\Debug\net10.0\KlaviyoCRC.pdb
 C:\Users\jhona\Desktop\Desarrollos\KlaviyoCRC\obj\Debug\net10.0\KlaviyoCRC.genruntimeconfig.cache
 C:\Users\jhona\Desktop\Desarrollos\KlaviyoCRC\obj\Debug\net10.0\ref\KlaviyoCRC.dll
-C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.Extensions.Primitives.dll
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\KlaviyoCRC.exe
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\KlaviyoCRC.deps.json
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\KlaviyoCRC.runtimeconfig.json
@@ -92,6 +91,7 @@ C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Micro
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.Extensions.Logging.EventSource.dll
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.Extensions.Options.dll
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.Extensions.Options.ConfigurationExtensions.dll
+C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.Extensions.Primitives.dll
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.Identity.Client.dll
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.Identity.Client.Extensions.Msal.dll
 C:\Users\jhona\Desktop\Desarrollos\AguaBenditaKlaviyoCRC\bin\Debug\net10.0\Microsoft.IdentityModel.Abstractions.dll

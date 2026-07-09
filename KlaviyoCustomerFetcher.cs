@@ -13,7 +13,7 @@ namespace KlaviyoCRC;
 
 public interface IKlaviyoCustomerFetcher
 {
-    Task FetchCustomersAsync(CancellationToken cancellationToken);
+    Task FetchCustomersAsync(BrandOptions brand, CancellationToken cancellationToken);
 }
 
 public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
@@ -27,31 +27,31 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
         _logger = logger;
     }
 
-    public async Task FetchCustomersAsync(CancellationToken cancellationToken)
+    public async Task FetchCustomersAsync(BrandOptions brand, CancellationToken cancellationToken)
     {
-        string apiKey = _configuration["KlaviyoSettings:ApiKey"] ?? "pk_xxxxxxxxxxxxx";
-        string baseUrl = _configuration["KlaviyoSettings:BaseUrl"] ?? "https://a.klaviyo.com/api";
-        string endpoint = _configuration["KlaviyoSettings:ProfilesEndpoint"] ?? "/profiles";
-        string accept = _configuration["KlaviyoSettings:Accept"] ?? "application/vnd.api+json";
-        string revision = _configuration["KlaviyoSettings:Revision"] ?? "2026-04-15";
-        string connectionString = _configuration.GetConnectionString("KlaviyoDatabase") 
-            ?? _configuration["ConnectionStrings:KlaviyoDatabase"] 
+        string apiKey = brand.ApiKey;
+        string baseUrl = brand.BaseUrl;
+        string endpoint = brand.ProfilesEndpoint;
+        string accept = brand.Accept;
+        string revision = brand.Revision;
+        string connectionString = _configuration.GetConnectionString("KlaviyoDatabase")
+            ?? _configuration["ConnectionStrings:KlaviyoDatabase"]
             ?? "Server=TU_SERVER;Database=TU_DB;Trusted_Connection=True;";
 
         string? nextCursor = null;
         using var client = new RestClient(baseUrl);
 
-        _logger.LogInformation("Iniciando lectura y descarga de clientes de Klaviyo usando KlaviyoCustomerFetcher...");
+        _logger.LogInformation("[{Brand}] Iniciando lectura y descarga de clientes de Klaviyo usando KlaviyoCustomerFetcher...", brand.Code);
 
         int pageCount = 0;
         int totalProcessed = 0;
-        int maxPages = _configuration.GetValue<int>("KlaviyoSettings:MaxPagesToFetch", 0);
+        int maxPages = brand.MaxPagesToFetch;
 
         do
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning("La lectura de clientes de Klaviyo fue cancelada.");
+                _logger.LogWarning("[{Brand}] La lectura de clientes de Klaviyo fue cancelada.", brand.Code);
                 break;
             }
 
@@ -65,19 +65,19 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
             if (!string.IsNullOrEmpty(nextCursor))
                 request.AddQueryParameter("page[cursor]", nextCursor);
 
-            _logger.LogInformation("Consumiendo API de Klaviyo. Endpoint: {Endpoint}, Página: {PageCount}, Clientes procesados hasta ahora: {TotalProcessed}, Cursor actual: {Cursor}", 
-                endpoint, pageCount, totalProcessed, nextCursor ?? "Inicio");
+            _logger.LogInformation("[{Brand}] Consumiendo API de Klaviyo. Endpoint: {Endpoint}, Página: {PageCount}, Clientes procesados hasta ahora: {TotalProcessed}, Cursor actual: {Cursor}",
+                brand.Code, endpoint, pageCount, totalProcessed, nextCursor ?? "Inicio");
             var response = await client.ExecuteAsync(request, cancellationToken);
             if (!response.IsSuccessful)
             {
-                var errorMsg = $"Error API: {response.StatusCode} - {response.Content}";
+                var errorMsg = $"[{brand.Code}] Error API: {response.StatusCode} - {response.Content}";
                 _logger.LogError(errorMsg);
                 throw new Exception(errorMsg);
             }
 
             if (string.IsNullOrEmpty(response.Content))
             {
-                _logger.LogWarning("La respuesta del API de Klaviyo está vacía.");
+                _logger.LogWarning("[{Brand}] La respuesta del API de Klaviyo está vacía.", brand.Code);
                 break;
             }
 
@@ -85,7 +85,7 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
             var dataArray = json["data"];
             if (dataArray == null || !dataArray.Any())
             {
-                _logger.LogInformation("No se encontraron clientes en la respuesta actual.");
+                _logger.LogInformation("[{Brand}] No se encontraron clientes en la respuesta actual.", brand.Code);
                 break;
             }
 
@@ -122,16 +122,16 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
             }
 
             totalProcessed += table.Rows.Count;
-            _logger.LogInformation("Insertando {RowCount} clientes en la base de datos (Total acumulado: {TotalProcessed})...", table.Rows.Count, totalProcessed);
+            _logger.LogInformation("[{Brand}] Insertando {RowCount} clientes en la base de datos (Total acumulado: {TotalProcessed})...", brand.Code, table.Rows.Count, totalProcessed);
 
             // Enviar DataTable al SP
             using (var conn = new SqlConnection(connectionString))
-            using (var cmd = new SqlCommand("dbo.InsertCustomers", conn))
+            using (var cmd = new SqlCommand(brand.InsertCustomersSp, conn))
             {
                 cmd.CommandType = CommandType.StoredProcedure;
                 var param = cmd.Parameters.AddWithValue("@Customers", table);
                 param.SqlDbType = SqlDbType.Structured;
-                param.TypeName = "dbo.CustomerType";
+                param.TypeName = brand.CustomerType;
 
                 await conn.OpenAsync(cancellationToken);
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
@@ -154,12 +154,12 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
 
             if (maxPages > 0 && pageCount >= maxPages)
             {
-                _logger.LogInformation("Se alcanzó el límite de páginas configurado ({MaxPages}). Deteniendo la descarga.", maxPages);
+                _logger.LogInformation("[{Brand}] Se alcanzó el límite de páginas configurado ({MaxPages}). Deteniendo la descarga.", brand.Code, maxPages);
                 break;
             }
 
         } while (!string.IsNullOrEmpty(nextCursor));
 
-        _logger.LogInformation("Lectura de clientes de Klaviyo finalizada correctamente.");
+        _logger.LogInformation("[{Brand}] Lectura de clientes de Klaviyo finalizada correctamente.", brand.Code);
     }
 }

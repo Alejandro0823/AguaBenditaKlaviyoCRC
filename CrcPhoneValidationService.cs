@@ -13,7 +13,7 @@ namespace KlaviyoCRC;
 
 public interface ICrcPhoneValidationService
 {
-    Task ValidatePhonesAsync(CancellationToken cancellationToken);
+    Task ValidatePhonesAsync(BrandOptions brand, CancellationToken cancellationToken);
 }
 
 public class CrcPhoneValidationService : ICrcPhoneValidationService
@@ -33,9 +33,9 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
         public List<string> Keys { get; set; } = new();
     }
 
-    public async Task ValidatePhonesAsync(CancellationToken cancellationToken)
+    public async Task ValidatePhonesAsync(BrandOptions brand, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Iniciando validación de teléfonos contra servicio CRC...");
+        _logger.LogInformation("[{Brand}] Iniciando validación de teléfonos contra servicio CRC...", brand.Code);
 
         // Reutiliza la misma sección de configuración que el servicio de emails
         var settings = _configuration.GetSection("CrcApiSettings");
@@ -48,15 +48,15 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
         string endpoint = settings["Endpoint"] ?? throw new InvalidOperationException("CrcApiSettings:Endpoint no configurado.");
 
         // --- 1. Obtener la lista de payloads del SP ---
-        var chunks = await GetCrcPayloadsFromDatabaseAsync(connectionString, cancellationToken);
+        var chunks = await GetCrcPayloadsFromDatabaseAsync(connectionString, brand.GetCustomerPhonesForCrcSp, cancellationToken);
 
         if (chunks.Count == 0)
         {
-            _logger.LogWarning("El SP GetCustomerPhonesForCRC no retornó payloads. No se enviará ninguna solicitud al CRC.");
+            _logger.LogWarning("[{Brand}] El SP {Sp} no retornó payloads. No se enviará ninguna solicitud al CRC.", brand.Code, brand.GetCustomerPhonesForCrcSp);
             return;
         }
 
-        _logger.LogInformation("Se obtuvieron {ChunkCount} bloques de teléfonos desde el SP para validar en total.", chunks.Count);
+        _logger.LogInformation("[{Brand}] Se obtuvieron {ChunkCount} bloques de teléfonos desde el SP para validar en total.", brand.Code, chunks.Count);
 
         using var client = new RestClient(baseUrl);
 
@@ -64,7 +64,7 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
         foreach (var chunk in chunks)
         {
             chunkIndex++;
-            _logger.LogInformation("Procesando bloque {ChunkIndex}/{TotalChunks} con {Count} teléfonos...", chunkIndex, chunks.Count, chunk.Keys.Count);
+            _logger.LogInformation("[{Brand}] Procesando bloque {ChunkIndex}/{TotalChunks} con {Count} teléfonos...", brand.Code, chunkIndex, chunks.Count, chunk.Keys.Count);
 
             // --- 2. Construir y ejecutar el request HTTP ---
             var request = new RestRequest(endpoint, Method.Post);
@@ -85,31 +85,33 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
             // Enviar el JSON del SP directamente como body
             request.AddStringBody(chunk.Payload, ContentType.Json);
 
-            _logger.LogInformation("Enviando bloque {ChunkIndex} al endpoint CRC: {BaseUrl}{Endpoint}", chunkIndex, baseUrl, endpoint);
+            _logger.LogInformation("[{Brand}] Enviando bloque {ChunkIndex} al endpoint CRC: {BaseUrl}{Endpoint}", brand.Code, chunkIndex, baseUrl, endpoint);
 
             var response = await client.ExecuteAsync(request, cancellationToken);
 
             if (!response.IsSuccessful)
             {
                 _logger.LogError(
-                    "Error al llamar al servicio CRC (teléfonos) para el bloque {ChunkIndex}. StatusCode: {StatusCode} - Respuesta: {Content}",
+                    "[{Brand}] Error al llamar al servicio CRC (teléfonos) para el bloque {ChunkIndex}. StatusCode: {StatusCode} - Respuesta: {Content}",
+                    brand.Code,
                     chunkIndex,
                     response.StatusCode,
                     response.Content);
-                throw new Exception($"CRC Phone API Error (Bloque {chunkIndex}): {response.StatusCode} - {response.Content}");
+                throw new Exception($"[{brand.Code}] CRC Phone API Error (Bloque {chunkIndex}): {response.StatusCode} - {response.Content}");
             }
 
-            _logger.LogInformation("Respuesta recibida para el bloque {ChunkIndex} del servicio CRC (teléfonos). Procesando resultados...", chunkIndex);
+            _logger.LogInformation("[{Brand}] Respuesta recibida para el bloque {ChunkIndex} del servicio CRC (teléfonos). Procesando resultados...", brand.Code, chunkIndex);
 
             // --- 3. Procesar la respuesta CRC y actualizar la base de datos ---
             await ProcessCrcResponseAndUpdateDatabaseAsync(
+                brand,
                 connectionString,
                 response.Content ?? "[]",
                 chunk.Keys,
                 cancellationToken);
         }
 
-        _logger.LogInformation("Validación CRC de teléfonos completada exitosamente para todos los bloques.");
+        _logger.LogInformation("[{Brand}] Validación CRC de teléfonos completada exitosamente para todos los bloques.", brand.Code);
     }
 
     /// <summary>
@@ -117,12 +119,13 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
     /// </summary>
     private async Task<List<CrcPayloadChunk>> GetCrcPayloadsFromDatabaseAsync(
         string connectionString,
+        string getCustomerPhonesForCrcSp,
         CancellationToken cancellationToken)
     {
         var chunks = new List<CrcPayloadChunk>();
 
         using var conn = new SqlConnection(connectionString);
-        using var cmd  = new SqlCommand("dbo.GetCustomerPhonesForCRC", conn)
+        using var cmd  = new SqlCommand(getCustomerPhonesForCrcSp, conn)
         {
             CommandType = CommandType.StoredProcedure
         };
@@ -164,17 +167,18 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
     }
 
     /// <summary>
-    /// Procesa el array de respuesta CRC y actualiza los campos IsSmsExcludedCRC e IsCallExcludedCRC
-    /// en la tabla Customers según las siguientes reglas:
+    /// Procesa el array de respuesta CRC y sincroniza IsSmsExcludedCRC e IsCallExcludedCRC en la
+    /// tabla Customers para TODOS los teléfonos enviados (no solo los que deben excluirse), ya que
+    /// el cliente puede activar/desactivar estos canales en CRC en cualquier momento:
     ///
-    ///   sms = false en la respuesta    → IsSmsExcludedCRC  = 1 (excluido)
-    ///   sms = true  en la respuesta    → IsSmsExcludedCRC  permanece en 0 (sin cambio)
-    ///   llamada = false en la respuesta → IsCallExcludedCRC = 1 (excluido)
-    ///   llamada = true  en la respuesta → IsCallExcludedCRC permanece en 0 (sin cambio)
-    ///   no aparece en la respuesta o array vacío [] → ambos campos permanecen en 0
-    ///   Siempre que haya actualización → CrcLastCheckedAt = GETDATE()
+    ///   sms = true      en la respuesta → IsSmsExcludedCRC  = 0 (quiere ser contactado)
+    ///   sms = false     en la respuesta → IsSmsExcludedCRC  = 1 (no quiere ser contactado)
+    ///   llamada = true  en la respuesta → IsCallExcludedCRC = 0 (quiere ser contactado)
+    ///   llamada = false en la respuesta → IsCallExcludedCRC = 1 (no quiere ser contactado)
+    ///   el teléfono no aparece en la respuesta (o array vacío []) → ambos campos = 0 (sin rastro, se asume disponible)
     /// </summary>
     private async Task ProcessCrcResponseAndUpdateDatabaseAsync(
+        BrandOptions brand,
         string connectionString,
         string responseContent,
         List<string> phonesSent,
@@ -188,20 +192,23 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
         }
         catch (Exception ex)
         {
-            _logger.LogError("La respuesta CRC (teléfonos) no es un JSON array válido: {Error}. Contenido: {Content}", ex.Message, responseContent);
+            _logger.LogError("[{Brand}] La respuesta CRC (teléfonos) no es un JSON array válido: {Error}. Contenido: {Content}", brand.Code, ex.Message, responseContent);
             throw;
         }
 
-        if (crcResults.Count == 0)
+        // Mapa llave (teléfono) -> (sms, llamada) reportado por CRC
+        var crcByPhone = new Dictionary<string, (bool Sms, bool Llamada)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in crcResults)
         {
-            _logger.LogInformation(
-                "La respuesta CRC está vacía ([]). Ningún teléfono será marcado como excluido. " +
-                "IsSmsExcludedCRC e IsCallExcludedCRC permanecen en 0 para los {Count} teléfonos enviados.",
-                phonesSent.Count);
-            return;
+            var llave = item["llave"]?.ToString();
+            if (string.IsNullOrWhiteSpace(llave)) continue;
+
+            var sms     = item["opcionesContacto"]?["sms"]    ?.ToObject<bool>() ?? true;
+            var llamada = item["opcionesContacto"]?["llamada"]?.ToObject<bool>() ?? true;
+            crcByPhone[llave] = (sms, llamada);
         }
 
-        // Construir DataTable con los registros a actualizar (TVP: dbo.PhoneExclusionType)
+        // Construir DataTable con TODOS los teléfonos enviados y su estado final (TVP: dbo.PhoneExclusionType)
         // Columnas: Phone, IsSmsExcluded, IsCallExcluded
         var table = new DataTable();
         table.Columns.Add("Phone",          typeof(string));
@@ -210,62 +217,42 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
 
         int totalExclusions = 0;
 
-        foreach (var item in crcResults)
+        foreach (var phone in phonesSent)
         {
-            var llave = item["llave"]?.ToString();
-            if (string.IsNullOrWhiteSpace(llave)) continue;
-
-            // sms = false → excluir SMS (IsSmsExcludedCRC = 1)
-            var sms     = item["opcionesContacto"]?["sms"]    ?.ToObject<bool>() ?? true;
-            // llamada = false → excluir llamada (IsCallExcludedCRC = 1)
-            var llamada = item["opcionesContacto"]?["llamada"]?.ToObject<bool>() ?? true;
+            // Si CRC no reporta el teléfono, se asume sms = true y llamada = true (disponible)
+            var (sms, llamada) = crcByPhone.TryGetValue(phone, out var value) ? value : (true, true);
 
             bool isSmsExcluded  = !sms;
             bool isCallExcluded = !llamada;
+            if (isSmsExcluded || isCallExcluded) totalExclusions++;
 
-            // Solo se actualiza en DB si al menos uno de los dos campos debe ser excluido
-            if (isSmsExcluded || isCallExcluded)
-            {
-                table.Rows.Add(llave, isSmsExcluded, isCallExcluded);
-                totalExclusions++;
-
-                _logger.LogDebug(
-                    "Teléfono {Phone}: IsSmsExcluded={Sms}, IsCallExcluded={Call}",
-                    llave, isSmsExcluded, isCallExcluded);
-            }
-            else
-            {
-                _logger.LogDebug("Teléfono {Phone}: sms=true y llamada=true, permanece sin cambio.", llave);
-            }
+            table.Rows.Add(phone, isSmsExcluded, isCallExcluded);
+            _logger.LogDebug(
+                "Teléfono {Phone}: IsSmsExcluded={Sms}, IsCallExcluded={Call}",
+                phone, isSmsExcluded, isCallExcluded);
         }
 
         _logger.LogInformation(
-            "Procesamiento CRC: {Total} teléfonos en respuesta, {ToUpdate} requieren actualización de exclusión.",
-            crcResults.Count, totalExclusions);
+            "[{Brand}] Procesamiento CRC: {Total} teléfonos en respuesta, {ToUpdate} de {Sent} teléfonos enviados quedarán con alguna exclusión.",
+            brand.Code, crcResults.Count, totalExclusions, phonesSent.Count);
 
-        if (table.Rows.Count == 0)
-        {
-            _logger.LogInformation("Ningún teléfono requiere actualización de exclusión CRC.");
-            return;
-        }
-
-        // Ejecutar el SP que actualiza IsSmsExcludedCRC, IsCallExcludedCRC y CrcLastCheckedAt
+        // Ejecutar el SP que sincroniza IsSmsExcludedCRC, IsCallExcludedCRC y CrcLastCheckedAt
         using var conn = new SqlConnection(connectionString);
-        using var cmd  = new SqlCommand("dbo.UpdatePhoneExclusionCRC", conn)
+        using var cmd  = new SqlCommand(brand.UpdatePhoneExclusionCrcSp, conn)
         {
             CommandType    = CommandType.StoredProcedure,
             CommandTimeout = 120
         };
 
-        var param = cmd.Parameters.AddWithValue("@ExcludedPhones", table);
+        var param = cmd.Parameters.AddWithValue("@Phones", table);
         param.SqlDbType = SqlDbType.Structured;
-        param.TypeName  = "dbo.PhoneExclusionType";
+        param.TypeName  = brand.PhoneExclusionType;
 
         await conn.OpenAsync(cancellationToken);
         var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
 
         _logger.LogInformation(
-            "SP UpdatePhoneExclusionCRC ejecutado. Registros actualizados en Customers: {Rows}.",
-            rowsAffected);
+            "[{Brand}] SP {Sp} ejecutado. Registros actualizados en Customers: {Rows}.",
+            brand.Code, brand.UpdatePhoneExclusionCrcSp, rowsAffected);
     }
 }
