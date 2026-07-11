@@ -19,11 +19,13 @@ public interface ICrcPhoneValidationService
 public class CrcPhoneValidationService : ICrcPhoneValidationService
 {
     private readonly IConfiguration _configuration;
+    private readonly ICrcApiTokenService _crcApiTokenService;
     private readonly ILogger<CrcPhoneValidationService> _logger;
 
-    public CrcPhoneValidationService(IConfiguration configuration, ILogger<CrcPhoneValidationService> logger)
+    public CrcPhoneValidationService(IConfiguration configuration, ICrcApiTokenService crcApiTokenService, ILogger<CrcPhoneValidationService> logger)
     {
         _configuration = configuration;
+        _crcApiTokenService = crcApiTokenService;
         _logger = logger;
     }
 
@@ -81,6 +83,11 @@ public class CrcPhoneValidationService : ICrcPhoneValidationService
                     _logger.LogDebug("Header agregado: {Key}", headerName);
                 }
             }
+
+            // Authorization: token vigente gestionado por CrcApiTokenService (se renueva automáticamente
+            // antes de que expire, ver ProcessExecutor.RunInternalProcessAsync), no viene de appsettings.
+            var crcToken = await _crcApiTokenService.GetCurrentTokenAsync(cancellationToken);
+            request.AddHeader("Authorization", $"Bearer {crcToken}");
 
             // Enviar el JSON del SP directamente como body
             request.AddStringBody(chunk.Payload, ContentType.Json);

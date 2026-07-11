@@ -20,11 +20,13 @@ public interface ICrcEmailValidationService
 public class CrcEmailValidationService : ICrcEmailValidationService
 {
     private readonly IConfiguration _configuration;
+    private readonly ICrcApiTokenService _crcApiTokenService;
     private readonly ILogger<CrcEmailValidationService> _logger;
 
-    public CrcEmailValidationService(IConfiguration configuration, ILogger<CrcEmailValidationService> logger)
+    public CrcEmailValidationService(IConfiguration configuration, ICrcApiTokenService crcApiTokenService, ILogger<CrcEmailValidationService> logger)
     {
         _configuration = configuration;
+        _crcApiTokenService = crcApiTokenService;
         _logger = logger;
     }
 
@@ -81,6 +83,11 @@ public class CrcEmailValidationService : ICrcEmailValidationService
                     _logger.LogDebug("Header agregado: {Key}", headerName);
                 }
             }
+
+            // Authorization: token vigente gestionado por CrcApiTokenService (se renueva automáticamente
+            // antes de que expire, ver ProcessExecutor.RunInternalProcessAsync), no viene de appsettings.
+            var crcToken = await _crcApiTokenService.GetCurrentTokenAsync(cancellationToken);
+            request.AddHeader("Authorization", $"Bearer {crcToken}");
 
             // Enviar el JSON del SP directamente como body
             request.AddStringBody(chunk.Payload, ContentType.Json);
