@@ -4,11 +4,39 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using KlaviyoCRC;
 
-var builder = Host.CreateApplicationBuilder(args);
+// Evita dos instancias simultáneas (posible con autoarranque + doble clic manual):
+// correr el mismo scheduler dos veces duplicaría llamadas a la API de Klaviyo/CRC y a la BD.
+using var singleInstanceMutex = new Mutex(true, "KlaviyoCRC_TrayApp_SingleInstance", out var isFirstInstance);
+if (!isFirstInstance)
+{
+    MessageBox.Show(
+        "KlaviyoCRC ya se está ejecutando (revisa los íconos ocultos de la bandeja del sistema).",
+        "KlaviyoCRC",
+        MessageBoxButtons.OK,
+        MessageBoxIcon.Information);
+    return;
+}
+
+ApplicationConfiguration.Initialize();
+Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    // Cuando la app corre instalada (autoarranque, acceso directo), el directorio de
+    // trabajo no es necesariamente la carpeta de instalación; anclar el content root
+    // al directorio del ejecutable asegura que appsettings.json siempre se encuentre.
+    ContentRootPath = AppContext.BaseDirectory,
+});
 
 // Colorea cada línea del log de consola según la marca (BrandOptions.Code) en ejecución.
+// Se conserva por si la app se ejecuta manualmente desde una terminal para depurar.
 builder.Logging.AddConsole(options => options.FormatterName = BrandConsoleFormatter.FormatterName)
     .AddConsoleFormatter<BrandConsoleFormatter, ConsoleFormatterOptions>();
+
+// Alimenta la ventana "Ver interfaz" de la bandeja con el mismo log.
+var trayLogProvider = new TrayLogViewerProvider();
+builder.Logging.AddProvider(trayLogProvider);
 
 // Register dependencies
 builder.Services.AddTransient<IKlaviyoCustomerFetcher, KlaviyoCustomerFetcher>();
@@ -20,4 +48,17 @@ builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
 builder.Services.AddHostedService<SchedulerService>();
 
 var host = builder.Build();
-await host.RunAsync();
+
+var logger = host.Services.GetRequiredService<ILogger<Program>>();
+Application.ThreadException += (_, e) =>
+    logger.LogError(e.Exception, "Excepción no controlada en el hilo de interfaz.");
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+    logger.LogCritical(e.ExceptionObject as Exception, "Excepción no controlada en un hilo de fondo.");
+
+await host.StartAsync();
+
+using var trayContext = new TrayApplicationContext(host, trayLogProvider);
+Application.Run(trayContext);
+
+await host.StopAsync();
+host.Dispose();
