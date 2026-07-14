@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -32,10 +31,11 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 
 // Configuración del programador editable desde la ventana "Ver interfaz": se guarda en una
 // carpeta de usuario (no en appsettings.json, que puede vivir en Program Files sin permisos de
-// escritura y contiene secretos) y se agrega como capa adicional para que sus valores bajo
-// "SchedulerSettings" sobreescriban a los de appsettings.json.
+// escritura y contiene secretos). Se siembra una sola vez desde appsettings.json si el archivo de
+// AppData todavía no existe; de ahí en adelante SchedulerConfigService lee/escribe ese archivo
+// directamente (no vía IConfiguration, para evitar que un array más corto en AppData no logre
+// truncar el de appsettings.json al superponerse).
 SchedulerConfigService.SeedIfMissing(builder.Configuration);
-builder.Configuration.AddJsonFile(SchedulerConfigService.GetSettingsFilePath(), optional: true, reloadOnChange: true);
 
 // Colorea cada línea del log de consola según la marca (BrandOptions.Code) en ejecución.
 // Se conserva por si la app se ejecuta manualmente desde una terminal para depurar.
