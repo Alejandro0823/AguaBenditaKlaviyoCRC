@@ -95,6 +95,11 @@ public class CrcApiTokenService : ICrcApiTokenService
 
         var response = await client.ExecuteAsync(request, cancellationToken);
 
+        // RestSharp no lanza excepción si el request se aborta por cancelación: devuelve una
+        // respuesta "fallida" con StatusCode 0, que sin este chequeo se trataría como un error
+        // real de la API en vez de un efecto esperado de "Detener procesos".
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!response.IsSuccessful || string.IsNullOrWhiteSpace(response.Content))
         {
             throw new Exception($"Error al renovar el token de CRC. StatusCode: {response.StatusCode} - {response.Content}");

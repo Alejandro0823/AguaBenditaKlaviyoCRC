@@ -13,6 +13,9 @@ public sealed class TrayApplicationContext : ApplicationContext
 {
     private readonly IHost _host;
     private readonly TrayLogViewerProvider _logProvider;
+    private readonly ISchedulerConfigService _schedulerConfigService;
+    private readonly ISchedulerStatusService _schedulerStatusService;
+    private readonly IProcessExecutor _processExecutor;
     private readonly ILogger<TrayApplicationContext> _logger;
     private readonly NotifyIcon _notifyIcon;
     private readonly Icon _appIcon;
@@ -24,6 +27,9 @@ public sealed class TrayApplicationContext : ApplicationContext
         _host = host;
         _logProvider = logProvider;
         _logger = host.Services.GetRequiredService<ILogger<TrayApplicationContext>>();
+        _schedulerConfigService = host.Services.GetRequiredService<ISchedulerConfigService>();
+        _schedulerStatusService = host.Services.GetRequiredService<ISchedulerStatusService>();
+        _processExecutor = host.Services.GetRequiredService<IProcessExecutor>();
 
         _appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
 
@@ -47,7 +53,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         if (_logViewerForm == null || _logViewerForm.IsDisposed)
         {
-            _logViewerForm = new LogViewerForm(_logProvider, _appIcon);
+            _logViewerForm = new LogViewerForm(_logProvider, _schedulerConfigService, _schedulerStatusService, _processExecutor, _appIcon);
         }
 
         if (!_logViewerForm.Visible)

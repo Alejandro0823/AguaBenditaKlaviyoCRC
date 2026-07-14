@@ -55,7 +55,10 @@ public class ProcessExecutor : IProcessExecutor
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error occurred during process execution");
+            if (ex.WasCancelledByRequest(cancellationToken))
+                _logger.LogInformation("Ejecución detenida manualmente desde la interfaz.");
+            else
+                _logger.LogError(ex, "Error occurred during process execution");
         }
     }
 
@@ -78,7 +81,10 @@ public class ProcessExecutor : IProcessExecutor
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al verificar/renovar el token de la API CRC. Se continuará con el token vigente.");
+            if (ex.WasCancelledByRequest(cancellationToken))
+                _logger.LogInformation("Verificación/renovación del token de la API CRC detenida manualmente.");
+            else
+                _logger.LogError(ex, "Error al verificar/renovar el token de la API CRC. Se continuará con el token vigente.");
         }
 
         // Cada marca corre su propio pipeline (Klaviyo -> Email CRC -> Phone CRC ->
@@ -115,7 +121,10 @@ public class ProcessExecutor : IProcessExecutor
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[{Brand}] Error en el pipeline de la marca.", brand.Code);
+            if (ex.WasCancelledByRequest(cancellationToken))
+                _logger.LogInformation("[{Brand}] Pipeline detenido manualmente.", brand.Code);
+            else
+                _logger.LogError(ex, "[{Brand}] Error en el pipeline de la marca.", brand.Code);
         }
     }
 

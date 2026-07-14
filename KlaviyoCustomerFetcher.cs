@@ -64,7 +64,10 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
         catch (Exception ex)
         {
             failure = ex;
-            _logger.LogError(ex, "[{Brand}] Error descargando clientes desde Klaviyo.", brand.Code);
+            if (ex.WasCancelledByRequest(cancellationToken))
+                _logger.LogInformation("[{Brand}] Descarga de clientes desde Klaviyo detenida manualmente.", brand.Code);
+            else
+                _logger.LogError(ex, "[{Brand}] Error descargando clientes desde Klaviyo.", brand.Code);
         }
         finally
         {
@@ -339,6 +342,12 @@ public class KlaviyoCustomerFetcher : IKlaviyoCustomerFetcher
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
             var response = await client.ExecuteAsync(request, cancellationToken);
+
+            // RestSharp no lanza excepción si el request se aborta por cancelación: devuelve una
+            // respuesta "fallida" con StatusCode 0 y contenido nulo, que sin este chequeo se
+            // trataría como un error real de la API. Priorizar la cancelación evita loguearla como
+            // tal cuando en realidad es efecto de "Detener procesos" o el cierre de la app.
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (response.IsSuccessful)
             {

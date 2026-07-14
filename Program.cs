@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -29,6 +30,13 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
     ContentRootPath = AppContext.BaseDirectory,
 });
 
+// Configuración del programador editable desde la ventana "Ver interfaz": se guarda en una
+// carpeta de usuario (no en appsettings.json, que puede vivir en Program Files sin permisos de
+// escritura y contiene secretos) y se agrega como capa adicional para que sus valores bajo
+// "SchedulerSettings" sobreescriban a los de appsettings.json.
+SchedulerConfigService.SeedIfMissing(builder.Configuration);
+builder.Configuration.AddJsonFile(SchedulerConfigService.GetSettingsFilePath(), optional: true, reloadOnChange: true);
+
 // Colorea cada línea del log de consola según la marca (BrandOptions.Code) en ejecución.
 // Se conserva por si la app se ejecuta manualmente desde una terminal para depurar.
 builder.Logging.AddConsole(options => options.FormatterName = BrandConsoleFormatter.FormatterName)
@@ -45,6 +53,8 @@ builder.Services.AddTransient<ICrcEmailValidationService, CrcEmailValidationServ
 builder.Services.AddTransient<ICrcPhoneValidationService, CrcPhoneValidationService>();
 builder.Services.AddTransient<IKlaviyoEmailExclusionSyncService, KlaviyoEmailExclusionSyncService>();
 builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
+builder.Services.AddSingleton<ISchedulerConfigService, SchedulerConfigService>();
+builder.Services.AddSingleton<ISchedulerStatusService, SchedulerStatusService>();
 builder.Services.AddHostedService<SchedulerService>();
 
 var host = builder.Build();
