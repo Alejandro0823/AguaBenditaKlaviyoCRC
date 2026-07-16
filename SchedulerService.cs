@@ -82,7 +82,9 @@ public class SchedulerService : BackgroundService
                 TimeSpan? delay;
                 if (config.ScheduleType == ScheduleKind.Daily)
                 {
-                    delay = CalculateNextDailyDelay(config.DailyRunTimes, _logger);
+                    var nowForDaily = DateTime.Now;
+                    var nextRunForDaily = DailyScheduleCalculator.GetNextRun(config.DailyRunTimes, nowForDaily, _logger);
+                    delay = nextRunForDaily.HasValue ? nextRunForDaily.Value - nowForDaily : null;
                     if (delay == null)
                     {
                         _logger.LogWarning("No hay horarios diarios válidos configurados. Revisando de nuevo en 1 minuto.");
@@ -161,45 +163,4 @@ public class SchedulerService : BackgroundService
         }
     }
 
-    private static TimeSpan? CalculateNextDailyDelay(IReadOnlyList<string> dailyTimes, ILogger logger)
-    {
-        if (dailyTimes.Count == 0)
-        {
-            return null;
-        }
-
-        var now = DateTime.Now;
-        DateTime? nextRun = null;
-
-        foreach (var timeStr in dailyTimes)
-        {
-            // Invariante: el horario se guarda siempre en formato HH:mm:ss con ':' literal, sin
-            // importar la configuración regional de Windows en la máquina donde corra la app.
-            if (TimeSpan.TryParse(timeStr, System.Globalization.CultureInfo.InvariantCulture, out var timeOfDay))
-            {
-                var candidate = now.Date.Add(timeOfDay);
-
-                if (candidate <= now)
-                {
-                    candidate = candidate.AddDays(1);
-                }
-
-                if (nextRun == null || candidate < nextRun.Value)
-                {
-                    nextRun = candidate;
-                }
-            }
-            else
-            {
-                logger.LogWarning("Invalid time format in configuration: {TimeStr}. Use HH:mm:ss format.", timeStr);
-            }
-        }
-
-        if (nextRun == null)
-        {
-            return null;
-        }
-
-        return nextRun.Value - now;
-    }
 }

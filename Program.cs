@@ -52,6 +52,7 @@ builder.Services.AddTransient<ICrcApiTokenService, CrcApiTokenService>();
 builder.Services.AddTransient<ICrcEmailValidationService, CrcEmailValidationService>();
 builder.Services.AddTransient<ICrcPhoneValidationService, CrcPhoneValidationService>();
 builder.Services.AddTransient<IKlaviyoEmailExclusionSyncService, KlaviyoEmailExclusionSyncService>();
+builder.Services.AddTransient<IKlaviyoSmsExclusionSyncService, KlaviyoSmsExclusionSyncService>();
 builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
 builder.Services.AddSingleton<ISchedulerConfigService, SchedulerConfigService>();
 builder.Services.AddSingleton<ISchedulerStatusService, SchedulerStatusService>();

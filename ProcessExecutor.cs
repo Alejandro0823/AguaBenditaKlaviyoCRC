@@ -17,6 +17,7 @@ public class ProcessExecutor : IProcessExecutor
     private readonly ICrcEmailValidationService _crcEmailValidationService;
     private readonly ICrcPhoneValidationService _crcPhoneValidationService;
     private readonly IKlaviyoEmailExclusionSyncService _klaviyoEmailExclusionSyncService;
+    private readonly IKlaviyoSmsExclusionSyncService _klaviyoSmsExclusionSyncService;
     private readonly ILogger<ProcessExecutor> _logger;
 
     public ProcessExecutor(
@@ -26,6 +27,7 @@ public class ProcessExecutor : IProcessExecutor
         ICrcEmailValidationService crcEmailValidationService,
         ICrcPhoneValidationService crcPhoneValidationService,
         IKlaviyoEmailExclusionSyncService klaviyoEmailExclusionSyncService,
+        IKlaviyoSmsExclusionSyncService klaviyoSmsExclusionSyncService,
         ILogger<ProcessExecutor> logger)
     {
         _configuration = configuration;
@@ -34,6 +36,7 @@ public class ProcessExecutor : IProcessExecutor
         _crcEmailValidationService = crcEmailValidationService;
         _crcPhoneValidationService = crcPhoneValidationService;
         _klaviyoEmailExclusionSyncService = klaviyoEmailExclusionSyncService;
+        _klaviyoSmsExclusionSyncService = klaviyoSmsExclusionSyncService;
         _logger = logger;
     }
 
@@ -103,7 +106,7 @@ public class ProcessExecutor : IProcessExecutor
 
         try
         {
-            _logger.LogInformation("[{Brand}] Iniciando pipeline (Klaviyo -> Email CRC -> Phone CRC -> Klaviyo Email Exclusion Sync)...", brand.Code);
+            _logger.LogInformation("[{Brand}] Iniciando pipeline (Klaviyo -> Email CRC -> Phone CRC -> Klaviyo Email Exclusion Sync -> Klaviyo SMS Exclusion Sync)...", brand.Code);
 
             // Paso 1: Descargar y persistir clientes desde Klaviyo
             await _klaviyoCustomerFetcher.FetchCustomersAsync(brand, cancellationToken);
@@ -116,6 +119,10 @@ public class ProcessExecutor : IProcessExecutor
 
             // Paso 4: Sincronizar hacia Klaviyo (bulk unsubscribe) los clientes excluidos por CRC
             await _klaviyoEmailExclusionSyncService.SyncEmailExclusionsAsync(brand, cancellationToken);
+
+            // Paso 5: Sincronizar hacia Klaviyo (custom property "Consentimiento SMS CRC") los
+            // clientes excluidos de SMS por CRC. Último paso del pipeline.
+            await _klaviyoSmsExclusionSyncService.SyncSmsExclusionsAsync(brand, cancellationToken);
 
             _logger.LogInformation("[{Brand}] Pipeline completado.", brand.Code);
         }

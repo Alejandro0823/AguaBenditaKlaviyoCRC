@@ -46,4 +46,12 @@ public class BrandOptions
     public string GetPendingEmailExclusionSyncKlaviyoSp { get; set; } = string.Empty;
     public string MarkEmailExclusionSyncedKlaviyoSp { get; set; } = string.Empty;
     public string EmailExclusionSyncType { get; set; } = string.Empty;
+
+    // Klaviyo: sincronización de exclusión de SMS (CRC) vía custom property del profile
+    // ("Consentimiento SMS CRC"), ya que Klaviyo no soporta el canal nativo de SMS marketing
+    // para números de Colombia. A diferencia del proceso de email, es un PATCH individual por
+    // perfil (no hay bulk endpoint para custom properties), por eso el SP de marcado usa un
+    // parámetro escalar en vez de un Table Type.
+    public string GetPendingSmsExclusionSyncKlaviyoSp { get; set; } = string.Empty;
+    public string MarkSmsExclusionSyncedKlaviyoSp { get; set; } = string.Empty;
 }

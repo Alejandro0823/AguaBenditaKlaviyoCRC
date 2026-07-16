@@ -22,6 +22,7 @@ public sealed class LogViewerForm : Form
     private readonly FlowLayoutPanel _dailyPanel;
     private readonly ListBox _dailyTimesList;
     private readonly DateTimePicker _dailyTimePicker;
+    private readonly Label _dailyTimesPreviewLabel;
     private readonly CheckBox _runOnStartupCheck;
     private readonly Label _nextRunLabel;
     private readonly Label _lastRunLabel;
@@ -61,7 +62,7 @@ public sealed class LogViewerForm : Form
         {
             Text = "Programador",
             Dock = DockStyle.Top,
-            Height = 235,
+            Height = 275,
             Padding = new Padding(10, 8, 10, 10),
         };
 
@@ -133,6 +134,19 @@ public sealed class LogViewerForm : Form
         dailyButtonsColumn.Controls.AddRange(new Control[] { _dailyTimePicker, addTimeButton, removeTimeButton });
         _dailyPanel.Controls.AddRange(new Control[] { _dailyTimesList, dailyButtonsColumn });
 
+        // Vista previa que se recalcula en vivo (antes de guardar) para que sea imposible no darse
+        // cuenta de horarios "viejos" que quedaron en la lista: siempre muestra TODOS los horarios
+        // activos y cuál de ellos disparará primero, así el usuario ve el efecto real de la lista
+        // completa y no solo del horario que acaba de agregar.
+        _dailyTimesPreviewLabel = new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(520, 0),
+            ForeColor = Color.DimGray,
+            Visible = false,
+            Margin = new Padding(0, 0, 0, 6),
+        };
+
         _runOnStartupCheck = new CheckBox
         {
             Text = "Ejecutar automáticamente al iniciar la aplicación",
@@ -146,7 +160,7 @@ public sealed class LogViewerForm : Form
         _lastRunLabel = new Label { Text = "Última ejecución: --", AutoSize = true, Margin = new Padding(0) };
         statusRow.Controls.AddRange(new Control[] { _nextRunLabel, _lastRunLabel });
 
-        leftFlow.Controls.AddRange(new Control[] { typeRow, _intervalPanel, _dailyPanel, _runOnStartupCheck, statusRow });
+        leftFlow.Controls.AddRange(new Control[] { typeRow, _intervalPanel, _dailyPanel, _dailyTimesPreviewLabel, _runOnStartupCheck, statusRow });
 
         var rightFlow = new FlowLayoutPanel
         {
@@ -229,6 +243,7 @@ public sealed class LogViewerForm : Form
             _dailyTimesList.Items.Clear();
             foreach (var t in config.DailyRunTimes)
                 _dailyTimesList.Items.Add(t);
+            UpdateDailyTimesPreview();
 
             _runOnStartupCheck.Checked = config.RunOnStartup;
 
@@ -246,6 +261,7 @@ public sealed class LogViewerForm : Form
         var isDaily = _scheduleTypeCombo.SelectedIndex == 1;
         _intervalPanel.Visible = !isDaily;
         _dailyPanel.Visible = isDaily;
+        _dailyTimesPreviewLabel.Visible = isDaily;
     }
 
     private void MarkDirty()
@@ -270,6 +286,7 @@ public sealed class LogViewerForm : Form
             _dailyTimesList.Items.AddRange(sorted);
         }
 
+        UpdateDailyTimesPreview();
         MarkDirty();
     }
 
@@ -279,7 +296,33 @@ public sealed class LogViewerForm : Form
             return;
 
         _dailyTimesList.Items.Remove(_dailyTimesList.SelectedItem);
+        UpdateDailyTimesPreview();
         MarkDirty();
+    }
+
+    /// <summary>
+    /// Recalcula, sobre la lista tal como está en pantalla (aunque todavía no se haya guardado),
+    /// cuáles son todos los horarios activos y cuál de ellos dispararía primero. Existe porque
+    /// "Agregar" solo añade a la lista: sin esto, un horario viejo que el usuario ya no recuerda
+    /// (p. ej. sembrado por defecto) puede terminar disparándose antes que el que acaba de agregar,
+    /// sin que haya forma de notarlo hasta que ya ocurrió.
+    /// </summary>
+    private void UpdateDailyTimesPreview()
+    {
+        var times = _dailyTimesList.Items.Cast<string>().ToList();
+        if (times.Count == 0)
+        {
+            _dailyTimesPreviewLabel.Text = "No hay horarios configurados.";
+            return;
+        }
+
+        var now = DateTime.Now;
+        var nextRun = DailyScheduleCalculator.GetNextRun(times, now);
+        var nextRunText = nextRun.HasValue
+            ? $"Próxima ejecución si guardas ahora: {nextRun.Value:HH:mm:ss} ({(nextRun.Value.Date == now.Date ? "hoy" : "mañana")})"
+            : "Próxima ejecución: --";
+
+        _dailyTimesPreviewLabel.Text = $"Horarios activos ({times.Count}): {string.Join(", ", times)}{Environment.NewLine}{nextRunText}";
     }
 
     private async Task SaveChangesAsync()
